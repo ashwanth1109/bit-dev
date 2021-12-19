@@ -1,25 +1,51 @@
+# Customising a Bit env
+
+[Note to Eden Ella - maybe this should be a general intro to all configure-xyz pages?]
+Any Bit env {link} comes with a built-in webpack configuration, designed to fulfil the expected requirements for most users of the env. 
+If this default config doesn't suit your requirements, all Bit envs come with an API for customising the webpack config to suit your needs.
+
+Any customisation of an env's config is essentially a change to its core functionality, and so must be done via creating a custom version of that env, 
+in which you then apply your customisations. 
+
 # Configure Webpack
 
-Depending on the [Component Development Environments](https://harmony-docs.bit.dev/building-with-bit/environments) configured for components, a different default Webpack config is applied on each component. You can customize any Webpack config by creating an Environment and use the available APIs to mutate the provided configuration. Bit uses the Envs' WebPack configuration for the contents of the **overview** tab and **compositions**.
+Bit uses an env's WebPack configuration to build the contents of the **overview** and **compositions** tabs, both in the local dev server and on the eventual Scope your component
+has been exported to. This configuration is split into two:
+1. Dev server UI webpack config§
+1. Scope UI webpack config (a.k.a Preview Config)
 
 ## `useWebpack`
 
-All base environments support the `useWebpack` function to mutate their base Webpack configuration.
+All base environments support the `useWebpack` function to mutate their base Webpack configuration in a custom env.
+
+### Format
+
+The `useWebpack` function takes in as parameters two arrays, of webpack transformers, one for the dev server config and one for the preview config.  
+
+Each webpack transformer is a function which takes a webpack config, applies certain mutations to it, and then returns the mutated config. In this manner, multiple transformers can be 
+chained together, meaning you can build transformers per feature (e.g. this [tailwind transformer](https://bit.dev/bit-foundations/styling/tailwind/webpack-transformer)) and then compose them
+together in a custom env.  
+
+`useWebpack` successively applies the transformers provided in the input arrays to the core config of the env being customised, producing the eventual customised config.  
+
+> Note: transformers are applied in the order in which they are set in the array, so make sure to order your transformations correctly.
 
 ```js
 useWebpack(modifiers?: UseWebpackModifiers): EnvTransformer
 
 export type UseWebpackModifiers = {
-  devServerConfig?: WebpackConfigTransformer[]; // Used for the 'bit start' command.
-  previewConfig?: WebpackConfigTransformer[]; // Used for 'build' and 'tag' commands.
+  devServerConfig?: WebpackConfigTransformer[]; // Used for the 'bit start' command to produce the local dev server.
+  previewConfig?: WebpackConfigTransformer[]; // Used for 'build' and 'tag' commands to produce the Docs/Compositions (collectively, the component Preview) on the Scope UI.
 };
 ```
 
-Each of the Webpack configs accepts an array of `WebpackConfigTransformer`. This is so you can build a transformer for specific features and compose them together. Each transformer can change the mutator instance (or create a new one). When returned, Bit passes the mutated instance to the next transformer in the array.
 
 ## `WebpackConfigTransformer`
 
-The `WebpackConfigTransformer` is the main function that mutates an instance of a Webpack configuration.
+The `WebpackConfigTransformer` is the main function that mutates an instance of a Webpack configuration. 
+
+(you don't need to be familiar with how to create the input parameters, they are provided by the core env when the transformer functions are passed to it. 
+What is important is to know what information is available to you in your transformer when customising the webpack configuration).
 
 ```js
 export type WebpackConfigTransformer = (
@@ -28,11 +54,10 @@ export type WebpackConfigTransformer = (
 ) => WebpackConfigMutator;
 ```
 
-`WebpackConfigMutator` is a class that holds the `raw` webpack config (as a member) and a set of built-in mutator functions for common tasks. [Learn more about the mutator API](https://bit.dev/teambit/webpack/modules/config-mutator).
+`WebpackConfigMutator` is a class that holds the `raw` webpack config being mutated (i.e. the relevant core Bit env's webpack config) as a member, and a set of built-in mutator functions for common tasks. [Learn more about the mutator API](https://bit.dev/teambit/webpack/modules/config-mutator).
 
-`WebpackConfigTransformContext` is a context provided by Bit. It's purpose is to help you build transformers based on the configs' context. At the moment it supports a basic `BundleMode`.
-
-# Configure Webpack
+`WebpackConfigTransformContext` is a context provided by Bit. It's purpose is to help you build transformers based on the configs' context. 
+At the moment it supports only a basic `BundleMode`, but will be expanded in the near future.
 
 ```js
 export type WebpackConfigTransformContext = {
@@ -41,15 +66,31 @@ export type WebpackConfigTransformContext = {
 export type BundlerMode = 'dev' | 'prod';
 ```
 
+## Configure Webpack Example
+
+[Here](https://github.com/teambit/webpack-override-examples/tree/main/my-scope/my-team-env) is a simple example of how to customise a webpack config. 
+
+The `webpack-transformers.ts` file (inside the `webpack` folder) exports two transformers (dev and preview, as above), which will then be supplied to the `useWebpack` function.
+As the base dev and preview configs are very similar most mutations apply for both, so the file also includes a commonTransformation function for common customisations - this is just a 
+recommendation, and not required.
+
+In the `commonTransformation` function you will see that the `stylable` plugin is being added to the webpack config via the `addPlugin` helper function (one of the built-in mutator functions
+of the `WebpackConfigMutator` class, as mentioned above).
+
+This webpackTransformer is then supplied to the `useWebpack` function [in the `main.runtime.ts` file](https://github.com/teambit/webpack-override-examples/blob/8a4da288b1e46f0e3e7216318ba1ed078e38dcd3/my-scope/my-team-env/my-team-env.main.runtime.ts#L23),
+in order to customise an existing env - in this case the [`my-org-env`](https://github.com/teambit/webpack-override-examples/tree/main/my-scope/my-org-env) (in the same repo), 
+which itself is based on Bit's core `react` env.
+
+
 ## Debug Prints for Config
 
 - When building a transformer, print `config.raw` to see what was passed to the transformer.
-- `config.raw` is a webpack config, which means there are cases where `JSON.stringify` will no print something which is human readable.
+- `config.raw` is a webpack config, which means there are cases where `JSON.stringify` will not print something which is human readable.
 - Use `require('util').inspect(config.raw, {depth: 5})` (or any other depth) as an alternative way for printing `config.raw`. [Learn more](https://nodejs.org/api/util.html#util_util_inspect_object_options)).
 
 ## Upcoming Changes and Improvements
 
-Below are changes to be introduce to Bit's support for Webpack configuration customization.
+Below are changes to be introduced to Bit's support for Webpack configuration customization.
 
 ### Module Federation
 
@@ -59,8 +100,9 @@ As part of this process Bit is likely to introduce additional transformers.
 
 ### Improve `WebpackConfigTransformContext`
 
-Currently the context is pretty thin. We aim to provide additional context like component-id, entry file and the entire component object.
+Currently the context is pretty thin. We aim to provide additional context information like component-id, entry file and the entire component object.
 
 ### Specific Env mutator
 
-Each Env will implement its own instance for a `WebpackConfigMutator` that will be aware of the different features and rules already available as defaults for the Env. This will allow each env to provide more specific mutator methods, as the mutator will be aware fo the internal structure of the config.
+Each Env will implement its own instance for a `WebpackConfigMutator` that will be aware of the different features and rules already available as defaults for the Env. 
+This will allow each env to provide more specific mutator methods, as the mutator will be aware of the internal structure of the config.
